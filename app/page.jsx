@@ -730,13 +730,49 @@ export default function Home() {
     setActiveMobilePanel((current) => (current === panel ? "" : panel));
   };
 
-  const download = () => {
-    const canvas = canvasRef.current;
+  const getDownloadName = () => {
     const size = OUTPUT_SIZES[output];
+    return `before-after-${output}-${size.width}x${size.height}.png`;
+  };
+
+  const downloadBlob = (blob) => {
     const link = document.createElement("a");
-    link.download = `before-after-${output}-${size.width}x${size.height}.png`;
-    link.href = canvas.toDataURL("image/png");
+    const url = URL.createObjectURL(blob);
+    link.download = getDownloadName();
+    link.href = url;
     link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const saveImage = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) {
+      const link = document.createElement("a");
+      link.download = getDownloadName();
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      return;
+    }
+
+    const file = new File([blob], getDownloadName(), { type: "image/png" });
+    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches;
+
+    if (isMobile && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: "Before After Maker"
+        });
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
+    }
+
+    downloadBlob(blob);
   };
 
   const handleCanvasClick = (event) => {
@@ -782,7 +818,7 @@ export default function Home() {
             tabIndex={0}
           />
           { (beforeSrc || afterSrc) && (
-            <button aria-label="PNGを書き出す" className="download-button" onClick={download} title="PNGを書き出す">
+            <button aria-label="PNGを書き出す" className="download-button" onClick={saveImage} title="PNGを書き出す">
               <Download size={18} />
               <span>保存する</span>
             </button>
@@ -1057,7 +1093,7 @@ export default function Home() {
             <Palette size={18} />
             <span>表示</span>
           </button>
-          <button className="mobile-tool save" disabled={!beforeSrc && !afterSrc} onClick={download} type="button">
+          <button className="mobile-tool save" disabled={!beforeSrc && !afterSrc} onClick={saveImage} type="button">
             <Download size={18} />
             <span>保存</span>
           </button>
