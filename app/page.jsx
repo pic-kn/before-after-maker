@@ -98,12 +98,34 @@ function isPortraitOutput(output) {
   return size.height > size.width;
 }
 
-function getDefaultLayoutForOutput(output) {
-  if (output === "instagramSquare" || isPortraitOutput(output)) {
-    return "stack";
+function isLandscapeOutput(output) {
+  const size = OUTPUT_SIZES[output];
+  return size.width > size.height;
+}
+
+function getAllowedLayoutIdsForOutput(output) {
+  if (output === "instagramSquare") {
+    return ["side", "split", "stack"];
   }
 
-  return "side";
+  if (isPortraitOutput(output)) {
+    return ["stack"];
+  }
+
+  if (isLandscapeOutput(output)) {
+    return ["side", "split"];
+  }
+
+  return ["stack"];
+}
+
+function getDefaultLayoutForOutput(output) {
+  return getAllowedLayoutIdsForOutput(output).at(-1) === "stack" ? "stack" : "side";
+}
+
+function getAllowedLayoutsForOutput(output) {
+  const allowedIds = getAllowedLayoutIdsForOutput(output);
+  return LAYOUTS.filter((layout) => allowedIds.includes(layout.id));
 }
 
 function fileToDataUrl(file) {
@@ -659,6 +681,8 @@ export default function Home() {
   const beforeImage = useLoadedImage(beforeSrc);
   const afterImage = useLoadedImage(afterSrc);
   const theme = THEME;
+  const availableLayouts = useMemo(() => getAllowedLayoutsForOutput(output), [output]);
+  const ActiveLayoutIcon = LAYOUTS.find((item) => item.id === layout)?.icon || PanelLeft;
 
   const drawOptions = useMemo(
     () => ({ afterImage, beforeImage, fontTick, layout, output, showLabels, showPalette, theme }),
@@ -923,8 +947,8 @@ export default function Home() {
         <div className="control-section">
           <h2 className="control-section-title">Layout / レイアウト</h2>
           <div className="control-card">
-            <div className="icon-grid layout-grid" aria-label="レイアウト">
-              {LAYOUTS.map((item) => {
+            <div className="icon-grid layout-grid" aria-label="レイアウト" style={{ gridTemplateColumns: `repeat(${availableLayouts.length}, 1fr)` }}>
+              {availableLayouts.map((item) => {
                 const Icon = item.icon;
                 return (
                   <button
@@ -1005,8 +1029,8 @@ export default function Home() {
             )}
 
             {activeMobilePanel === "layout" && (
-              <div className="icon-grid layout-grid mobile-layout-grid" aria-label="モバイル レイアウト">
-                {LAYOUTS.map((item) => {
+              <div className="icon-grid layout-grid mobile-layout-grid" aria-label="モバイル レイアウト" style={{ gridTemplateColumns: `repeat(${availableLayouts.length}, 1fr)` }}>
+                {availableLayouts.map((item) => {
                   const Icon = item.icon;
                   return (
                     <button
@@ -1079,7 +1103,7 @@ export default function Home() {
             <span>画像</span>
           </button>
           <button className={activeMobilePanel === "layout" ? "mobile-tool active" : "mobile-tool"} onClick={() => setMobilePanel("layout")} type="button">
-            <PanelLeft size={18} />
+            <ActiveLayoutIcon size={18} />
             <span>配置</span>
           </button>
           <button className={activeMobilePanel === "size" ? "mobile-tool active" : "mobile-tool"} onClick={() => setMobilePanel("size")} type="button">
