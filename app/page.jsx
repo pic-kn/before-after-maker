@@ -654,6 +654,7 @@ export default function Home() {
   const [layout, setLayout] = useState(() => getDefaultLayoutForOutput("instagramSquare"));
   const [showLabels, setShowLabels] = useState(true);
   const [showPalette, setShowPalette] = useState(true);
+  const [activeMobilePanel, setActiveMobilePanel] = useState("size");
   const [fontTick, setFontTick] = useState(0);
   const beforeImage = useLoadedImage(beforeSrc);
   const afterImage = useLoadedImage(afterSrc);
@@ -723,6 +724,10 @@ export default function Home() {
         sizeGridRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
       });
     }
+  };
+
+  const setMobilePanel = (panel) => {
+    setActiveMobilePanel((current) => (current === panel ? "" : panel));
   };
 
   const download = () => {
@@ -925,6 +930,138 @@ export default function Home() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="mobile-editor" aria-label="モバイル画像作成設定">
+        {activeMobilePanel && (
+          <div className="mobile-sheet">
+            <div className="mobile-sheet-title">
+              <span>
+                {activeMobilePanel === "images" && "Images"}
+                {activeMobilePanel === "layout" && "Layout"}
+                {activeMobilePanel === "size" && "Size"}
+                {activeMobilePanel === "display" && "Display"}
+              </span>
+              <button aria-label="設定パネルを閉じる" className="mobile-sheet-close" onClick={() => setActiveMobilePanel("")} type="button">
+                ×
+              </button>
+            </div>
+
+            {activeMobilePanel === "images" && (
+              <div className="mobile-image-actions">
+                <button className="mobile-action-card" onClick={() => beforeInputRef.current?.click()} type="button">
+                  <Upload size={17} />
+                  <span>Before</span>
+                </button>
+                <button className="mobile-action-card" onClick={() => afterInputRef.current?.click()} type="button">
+                  <Upload size={17} />
+                  <span>After</span>
+                </button>
+                <button className="mobile-action-card danger" disabled={!beforeSrc} onClick={() => handleClearImage("before")} type="button">
+                  <Trash2 size={16} />
+                  <span>Clear B</span>
+                </button>
+                <button className="mobile-action-card danger" disabled={!afterSrc} onClick={() => handleClearImage("after")} type="button">
+                  <Trash2 size={16} />
+                  <span>Clear A</span>
+                </button>
+              </div>
+            )}
+
+            {activeMobilePanel === "layout" && (
+              <div className="icon-grid layout-grid mobile-layout-grid" aria-label="モバイル レイアウト">
+                {LAYOUTS.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      aria-label={item.label}
+                      className={layout === item.id ? "icon-button active" : "icon-button"}
+                      key={item.id}
+                      onClick={() => setLayout(item.id)}
+                      title={item.label}
+                      type="button"
+                    >
+                      <Icon size={18} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {activeMobilePanel === "size" && (
+              <div className="mobile-size-scroller" aria-label="モバイル サイズ" ref={sizeGridRef}>
+                {Object.entries(OUTPUT_SIZES).map(([id, size]) => {
+                  const preset = SIZE_PRESETS[id];
+                  const Icon = preset.icon;
+                  return (
+                    <button
+                      aria-label={`${size.label} ${size.width}x${size.height}`}
+                      className={output === id ? "icon-button size-button active" : "icon-button size-button"}
+                      key={id}
+                      onClick={() => handleOutputChange(id)}
+                      title={`${size.label} - ${size.width}x${size.height}`}
+                      type="button"
+                    >
+                      <Icon size={20} />
+                      <span className="size-label">{preset.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {activeMobilePanel === "display" && (
+              <div className="icon-grid toggle-grid mobile-toggle-grid" aria-label="モバイル 表示オプション">
+                <button
+                  aria-pressed={showLabels}
+                  className={showLabels ? "icon-button toggle-button active" : "icon-button toggle-button"}
+                  onClick={() => setShowLabels((value) => !value)}
+                  title="Before / After ラベル"
+                  type="button"
+                >
+                  <Tag size={17} />
+                  <span className="toggle-label">Label</span>
+                </button>
+                <button
+                  aria-pressed={showPalette}
+                  className={showPalette ? "icon-button toggle-button active" : "icon-button toggle-button"}
+                  onClick={() => setShowPalette((value) => !value)}
+                  title="カラーパレット"
+                  type="button"
+                >
+                  <Palette size={17} />
+                  <span className="toggle-label">Palette</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <nav className="mobile-toolbar" aria-label="主要操作">
+          <button className={activeMobilePanel === "images" ? "mobile-tool active" : "mobile-tool"} onClick={() => setMobilePanel("images")} type="button">
+            <Upload size={18} />
+            <span>画像</span>
+          </button>
+          <button className={activeMobilePanel === "layout" ? "mobile-tool active" : "mobile-tool"} onClick={() => setMobilePanel("layout")} type="button">
+            <PanelLeft size={18} />
+            <span>配置</span>
+          </button>
+          <button className={activeMobilePanel === "size" ? "mobile-tool active" : "mobile-tool"} onClick={() => setMobilePanel("size")} type="button">
+            {(() => {
+              const Icon = SIZE_PRESETS[output].icon;
+              return <Icon size={18} />;
+            })()}
+            <span>サイズ</span>
+          </button>
+          <button className={activeMobilePanel === "display" ? "mobile-tool active" : "mobile-tool"} onClick={() => setMobilePanel("display")} type="button">
+            <Palette size={18} />
+            <span>表示</span>
+          </button>
+          <button className="mobile-tool save" disabled={!beforeSrc && !afterSrc} onClick={download} type="button">
+            <Download size={18} />
+            <span>保存</span>
+          </button>
+        </nav>
       </section>
     </main>
   );
