@@ -325,11 +325,18 @@ select {
   box-shadow: 0 22px 54px rgba(30, 44, 51, 0.12);
 }
 
-/* フローティングダウンロードボタン */
-.canvas-wrapper .download-button {
+.canvas-actions {
   position: absolute;
   bottom: 16px;
   right: 16px;
+  z-index: 5;
+  display: inline-flex;
+  gap: 8px;
+}
+
+/* フローティングアクションボタン */
+.canvas-wrapper .download-button,
+.canvas-wrapper .share-button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -347,11 +354,11 @@ select {
   letter-spacing: 0.1em;
   box-shadow: 0 8px 24px rgba(30, 44, 51, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.4);
   cursor: pointer;
-  z-index: 5;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.canvas-wrapper .download-button:hover {
+.canvas-wrapper .download-button:hover,
+.canvas-wrapper .share-button:hover {
   background: var(--accent);
   color: #ffffff;
   border-color: var(--accent);
@@ -359,7 +366,8 @@ select {
   transform: translateY(-2px);
 }
 
-.canvas-wrapper .download-button:active {
+.canvas-wrapper .download-button:active,
+.canvas-wrapper .share-button:active {
   transform: translateY(0);
 }
 
@@ -444,7 +452,7 @@ canvas:focus-visible {
     max-height: calc(100svh - 210px);
   }
 
-  .canvas-wrapper .download-button {
+  .canvas-actions {
     display: none;
   }
 
@@ -503,7 +511,7 @@ canvas:focus-visible {
 
   .mobile-toolbar {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;
     width: min(100%, 680px);
     margin: 0 auto;
@@ -537,6 +545,7 @@ canvas:focus-visible {
   }
 
   .mobile-tool.active,
+  .mobile-tool.share:not(:disabled),
   .mobile-tool.save:not(:disabled) {
     background: var(--accent);
     color: var(--base);

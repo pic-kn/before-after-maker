@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Palette, PanelLeft, Rows3, SlidersHorizontal, Tag, Trash2, Upload } from "lucide-react";
+import { Download, Palette, PanelLeft, Rows3, Share2, SlidersHorizontal, Tag, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getContentInset, getImageCoverRect, OUTPUT_SIZES } from "../lib/canvasMath";
 
@@ -768,11 +768,18 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const getCanvasBlob = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  };
+
   const saveImage = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    const blob = await getCanvasBlob();
     if (!blob) {
       const link = document.createElement("a");
       link.download = getDownloadName();
@@ -797,6 +804,35 @@ export default function Home() {
     }
 
     downloadBlob(blob);
+  };
+
+  const shareImage = async () => {
+    const blob = await getCanvasBlob();
+    const file = blob ? new File([blob], getDownloadName(), { type: "image/png" }) : null;
+    const shareData = {
+      title: "Before After Maker",
+      text: "Before/After image made with Before After Maker",
+      url: typeof window !== "undefined" ? window.location.href : undefined
+    };
+
+    try {
+      if (file && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          ...shareData,
+          files: [file],
+          url: undefined
+        });
+        return;
+      }
+
+      if (navigator.share) {
+        await navigator.share(shareData);
+      }
+    } catch (error) {
+      if (error?.name !== "AbortError" && blob) {
+        downloadBlob(blob);
+      }
+    }
   };
 
   const handleCanvasClick = (event) => {
@@ -842,10 +878,16 @@ export default function Home() {
             tabIndex={0}
           />
           { (beforeSrc || afterSrc) && (
-            <button aria-label="PNGを書き出す" className="download-button" onClick={saveImage} title="PNGを書き出す">
-              <Download size={18} />
-              <span>保存する</span>
-            </button>
+            <div className="canvas-actions">
+              <button aria-label="SNSに共有する" className="share-button" onClick={shareImage} title="SNSに共有する" type="button">
+                <Share2 size={18} />
+                <span>共有</span>
+              </button>
+              <button aria-label="PNGを書き出す" className="download-button" onClick={saveImage} title="PNGを書き出す" type="button">
+                <Download size={18} />
+                <span>保存</span>
+              </button>
+            </div>
           ) }
         </div>
       </section>
@@ -1116,6 +1158,10 @@ export default function Home() {
           <button className={activeMobilePanel === "display" ? "mobile-tool active" : "mobile-tool"} onClick={() => setMobilePanel("display")} type="button">
             <Palette size={18} />
             <span>表示</span>
+          </button>
+          <button className="mobile-tool share" disabled={!beforeSrc && !afterSrc} onClick={shareImage} type="button">
+            <Share2 size={18} />
+            <span>共有</span>
           </button>
           <button className="mobile-tool save" disabled={!beforeSrc && !afterSrc} onClick={saveImage} type="button">
             <Download size={18} />
