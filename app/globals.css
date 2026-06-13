@@ -122,6 +122,10 @@ select {
   grid-template-columns: repeat(3, 1fr);
 }
 
+.toggle-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -160,6 +164,18 @@ select {
   line-height: 1;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.toggle-button {
+  gap: 7px;
+  min-height: 46px;
+}
+
+.toggle-label {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 /* コントロールセクションと見出し */

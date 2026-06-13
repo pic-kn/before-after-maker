@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, PanelLeft, Rows3, SlidersHorizontal, Trash2, Upload } from "lucide-react";
+import { Download, Palette, PanelLeft, Rows3, SlidersHorizontal, Tag, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getContentInset, getImageCoverRect, OUTPUT_SIZES } from "../lib/canvasMath";
 
@@ -96,6 +96,14 @@ const SIZE_PRESETS = {
 function isPortraitOutput(output) {
   const size = OUTPUT_SIZES[output];
   return size.height > size.width;
+}
+
+function getDefaultLayoutForOutput(output) {
+  if (output === "instagramSquare" || isPortraitOutput(output)) {
+    return "stack";
+  }
+
+  return "side";
 }
 
 function fileToDataUrl(file) {
@@ -245,62 +253,37 @@ function drawTinyLabel(ctx, text, box, theme) {
   ctx.restore();
 }
 
-function colorDistance(a, b) {
-  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+function clampColor(value) {
+  return Math.max(0, Math.min(255, Math.round(value)));
 }
 
-function extractPalette(image, theme) {
-  const samples = new Map();
-  const sampleCanvas = document.createElement("canvas");
-  const sampleSize = 96;
-  sampleCanvas.width = sampleSize;
-  sampleCanvas.height = sampleSize;
-  const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+function rgbToLab(r, g, b) {
+  const toLinear = (value) => {
+    const normalized = value / 255;
+    return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
 
-  if (image) {
-    sampleCtx.clearRect(0, 0, sampleSize, sampleSize);
-    const rect = getImageCoverRect(image.naturalWidth, image.naturalHeight, { x: 0, y: 0, width: sampleSize, height: sampleSize });
-    sampleCtx.drawImage(image, rect.x, rect.y, rect.width, rect.height);
-    const data = sampleCtx.getImageData(0, 0, sampleSize, sampleSize).data;
+  const x = (toLinear(r) * 0.4124564 + toLinear(g) * 0.3575761 + toLinear(b) * 0.1804375) / 0.95047;
+  const y = toLinear(r) * 0.2126729 + toLinear(g) * 0.7151522 + toLinear(b) * 0.072175;
+  const z = (toLinear(r) * 0.0193339 + toLinear(g) * 0.119192 + toLinear(b) * 0.9503041) / 1.08883;
+  const pivot = (value) => (value > 0.008856 ? Math.cbrt(value) : 7.787 * value + 16 / 116);
+  const fx = pivot(x);
+  const fy = pivot(y);
+  const fz = pivot(z);
 
-    for (let i = 0; i < data.length; i += 16) {
-      const alpha = data[i + 3];
-      if (alpha < 180) continue;
+  return {
+    l: 116 * fy - 16,
+    a: 500 * (fx - fy),
+    b: 200 * (fy - fz)
+  };
+}
 
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const brightness = (r + g + b) / 3;
-      if (brightness < 12 || brightness > 252) continue;
+function labDistance(a, b) {
+  return Math.hypot(a.l - b.l, a.a - b.a, a.b - b.b);
+}
 
-      const key = `${Math.round(r / 24) * 24},${Math.round(g / 24) * 24},${Math.round(b / 24) * 24}`;
-      const current = samples.get(key) || { r: 0, g: 0, b: 0, count: 0 };
-      samples.set(key, { r: current.r + r, g: current.g + g, b: current.b + b, count: current.count + 1 });
-    }
-  }
-
-  const ranked = [...samples.values()]
-    .map((color) => ({
-      r: Math.round(color.r / color.count),
-      g: Math.round(color.g / color.count),
-      b: Math.round(color.b / color.count),
-      count: color.count
-    }))
-    .sort((a, b) => b.count - a.count);
-
-  const palette = [];
-  ranked.forEach((color) => {
-    if (palette.length >= 5) return;
-    if (palette.every((picked) => colorDistance(color, picked) > 34)) {
-      palette.push(color);
-    }
-  });
-
-  if (palette.length) {
-    return palette;
-  }
-
-  return [theme.accent, theme.mid, theme.light, theme.wash, theme.panel].map((hex) => {
+function fallbackPalette(theme) {
+  return [theme.foreground, theme.accent, theme.mid, theme.light, "#edf3f4"].map((hex) => {
     const normalized = hex.replace("#", "").slice(0, 6);
     return {
       r: parseInt(normalized.slice(0, 2), 16),
@@ -308,6 +291,165 @@ function extractPalette(image, theme) {
       b: parseInt(normalized.slice(4, 6), 16)
     };
   });
+}
+
+function initializeCentroids(samples, count) {
+  const weighted = [...samples].sort((a, b) => b.weight * (0.75 + b.chroma / 80) - a.weight * (0.75 + a.chroma / 80));
+  const centroids = [{ ...weighted[0] }];
+
+  while (centroids.length < count && centroids.length < weighted.length) {
+    let next = weighted[0];
+    let bestScore = -Infinity;
+
+    weighted.forEach((sample) => {
+      const nearest = Math.min(...centroids.map((centroid) => labDistance(sample, centroid)));
+      const score = nearest * Math.sqrt(sample.weight) * (0.75 + Math.min(sample.chroma / 70, 1) * 0.35);
+      if (score > bestScore) {
+        bestScore = score;
+        next = sample;
+      }
+    });
+
+    centroids.push({ ...next });
+  }
+
+  return centroids;
+}
+
+function extractPalette(image, theme) {
+  const sampleCanvas = document.createElement("canvas");
+  const sampleSize = 120;
+  sampleCanvas.width = sampleSize;
+  sampleCanvas.height = sampleSize;
+  const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+
+  if (!image) {
+    return fallbackPalette(theme);
+  }
+
+  sampleCtx.clearRect(0, 0, sampleSize, sampleSize);
+  const rect = getImageCoverRect(image.naturalWidth, image.naturalHeight, { x: 0, y: 0, width: sampleSize, height: sampleSize });
+  sampleCtx.drawImage(image, rect.x, rect.y, rect.width, rect.height);
+  const data = sampleCtx.getImageData(0, 0, sampleSize, sampleSize).data;
+  const samples = [];
+  const center = (sampleSize - 1) / 2;
+  const maxRadius = Math.hypot(center, center);
+
+  for (let y = 0; y < sampleSize; y += 2) {
+    for (let x = 0; x < sampleSize; x += 2) {
+      const index = (y * sampleSize + x) * 4;
+      const alpha = data[index + 3];
+      if (alpha < 180) continue;
+
+      const r = data[index];
+      const g = data[index + 1];
+      const b = data[index + 2];
+      const lab = rgbToLab(r, g, b);
+      const chroma = Math.hypot(lab.a, lab.b);
+      const centerDistance = Math.hypot(x - center, y - center) / maxRadius;
+      const centerWeight = 0.85 + (1 - centerDistance) ** 2 * 0.55;
+      const chromaWeight = 0.82 + Math.min(chroma / 55, 1) * 0.28;
+      const neutralWeight = chroma < 5 ? 0.72 : 1;
+      const extremeWeight = lab.l < 5 || lab.l > 97 ? 0.38 : 1;
+
+      samples.push({
+        r,
+        g,
+        blue: b,
+        l: lab.l,
+        a: lab.a,
+        b: lab.b,
+        chroma,
+        weight: (alpha / 255) * centerWeight * chromaWeight * neutralWeight * extremeWeight
+      });
+    }
+  }
+
+  if (!samples.length) {
+    return fallbackPalette(theme);
+  }
+
+  let centroids = initializeCentroids(samples, Math.min(8, samples.length));
+
+  for (let iteration = 0; iteration < 10; iteration += 1) {
+    const clusters = centroids.map(() => ({ r: 0, g: 0, blue: 0, l: 0, a: 0, labB: 0, weight: 0 }));
+
+    samples.forEach((sample) => {
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+      centroids.forEach((centroid, index) => {
+        const distance = labDistance(sample, centroid);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+
+      const cluster = clusters[nearestIndex];
+      cluster.r += sample.r * sample.weight;
+      cluster.g += sample.g * sample.weight;
+      cluster.blue += sample.blue * sample.weight;
+      cluster.l += sample.l * sample.weight;
+      cluster.a += sample.a * sample.weight;
+      cluster.labB += sample.b * sample.weight;
+      cluster.weight += sample.weight;
+    });
+
+    centroids = centroids.map((centroid, index) => {
+      const cluster = clusters[index];
+      if (!cluster.weight) return centroid;
+      return {
+        r: cluster.r / cluster.weight,
+        g: cluster.g / cluster.weight,
+        blue: cluster.blue / cluster.weight,
+        l: cluster.l / cluster.weight,
+        a: cluster.a / cluster.weight,
+        b: cluster.labB / cluster.weight,
+        chroma: Math.hypot(cluster.a / cluster.weight, cluster.labB / cluster.weight),
+        weight: cluster.weight
+      };
+    });
+  }
+
+  const totalWeight = centroids.reduce((sum, color) => sum + color.weight, 0);
+  const ranked = centroids
+    .filter((color) => color.weight / totalWeight > 0.01)
+    .map((color) => ({
+      ...color,
+      importance: color.weight * (0.78 + Math.min(color.chroma / 60, 1) * 0.32) * (color.l < 8 || color.l > 94 ? 0.72 : 1)
+    }))
+    .sort((a, b) => b.importance - a.importance);
+
+  const pickDiverse = (minDistance) => {
+    const result = [];
+    ranked.forEach((color) => {
+      if (result.length >= 5) return;
+      if (result.every((picked) => labDistance(color, picked) >= minDistance)) {
+        result.push(color);
+      }
+    });
+    return result;
+  };
+
+  let palette = pickDiverse(18);
+  if (palette.length < 5) palette = pickDiverse(14);
+  if (palette.length < 5) palette = pickDiverse(10);
+  if (palette.length < 5) palette = pickDiverse(6);
+
+  ranked.forEach((color) => {
+    if (palette.length < 5 && !palette.includes(color)) {
+      palette.push(color);
+    }
+  });
+
+  return palette
+    .slice(0, 5)
+    .sort((a, b) => a.l - b.l)
+    .map((color) => ({
+      r: clampColor(color.r),
+      g: clampColor(color.g),
+      b: clampColor(color.blue)
+    }));
 }
 
 function drawPaletteGroup(ctx, palette, box, theme) {
@@ -351,17 +493,17 @@ function drawPalettes(ctx, beforePalette, afterPalette, box, theme, layout) {
   drawPaletteGroup(ctx, afterPalette, { x: box.x + groupWidth + gap, y: box.y, width: groupWidth, height: box.height }, theme);
 }
 
-function getRenderRegions(output, layout) {
+function getRenderRegions(output, layout, showPalette = true) {
   const size = OUTPUT_SIZES[output];
   const inset = getContentInset(size.width, size.height);
-  const paletteHeight = Math.max(34, Math.round(Math.min(size.width, size.height) * 0.058));
+  const paletteHeight = showPalette ? Math.max(34, Math.round(Math.min(size.width, size.height) * 0.058)) : 0;
   const gap = Math.round(inset * 0.42);
   const mediaTop = inset;
   const mediaWidth = size.width - inset * 2;
 
   if (layout === "stack") {
-    const verticalPaletteWidth = Math.max(36, Math.round(Math.min(size.width, size.height) * 0.07));
-    const imagePaletteGap = Math.max(8, Math.round(gap * 0.45));
+    const verticalPaletteWidth = showPalette ? Math.max(36, Math.round(Math.min(size.width, size.height) * 0.07)) : 0;
+    const imagePaletteGap = showPalette ? Math.max(8, Math.round(gap * 0.45)) : 0;
     const pairGap = gap;
     const imageWidth = mediaWidth - verticalPaletteWidth - imagePaletteGap;
     const halfHeight = (size.height - inset * 2 - pairGap) / 2;
@@ -399,10 +541,11 @@ function getRenderRegions(output, layout) {
     };
   }
 
-  const mediaHeight = size.height - inset * 2 - paletteHeight - Math.round(gap * 0.75);
+  const paletteGap = showPalette ? Math.round(gap * 0.75) : 0;
+  const mediaHeight = size.height - inset * 2 - paletteHeight - paletteGap;
   const paletteBox = {
     x: inset,
-    y: mediaTop + mediaHeight + Math.round(gap * 0.75),
+    y: mediaTop + mediaHeight + paletteGap,
     width: mediaWidth,
     height: paletteHeight
   };
@@ -422,7 +565,7 @@ function getRenderRegions(output, layout) {
 }
 
 function renderCanvas(canvas, options) {
-  const { afterImage, beforeImage, layout, output, theme } = options;
+  const { afterImage, beforeImage, layout, output, showLabels, showPalette, theme } = options;
   const ctx = canvas.getContext("2d");
   const {
     afterBox,
@@ -436,9 +579,9 @@ function renderCanvas(canvas, options) {
     mediaWidth,
     paletteBox,
     size
-  } = getRenderRegions(output, layout);
-  const beforePalette = extractPalette(beforeImage, theme);
-  const afterPalette = extractPalette(afterImage, theme);
+  } = getRenderRegions(output, layout, showPalette);
+  const beforePalette = showPalette ? extractPalette(beforeImage, theme) : [];
+  const afterPalette = showPalette ? extractPalette(afterImage, theme) : [];
 
   canvas.width = size.width;
   canvas.height = size.height;
@@ -455,13 +598,17 @@ function renderCanvas(canvas, options) {
   if (layout === "stack") {
     drawImage(ctx, beforeImage, beforeBox, theme, "BEFORE");
     drawImage(ctx, afterImage, afterBox, theme, "AFTER");
-    drawTinyLabel(ctx, "BEFORE", beforeBox, theme);
-    drawTinyLabel(ctx, "AFTER", afterBox, theme);
+    if (showLabels) {
+      drawTinyLabel(ctx, "BEFORE", beforeBox, theme);
+      drawTinyLabel(ctx, "AFTER", afterBox, theme);
+    }
     ctx.strokeStyle = theme.light;
     ctx.strokeRect(beforeBox.x, beforeBox.y, beforeBox.width, beforeBox.height);
     ctx.strokeRect(afterBox.x, afterBox.y, afterBox.width, afterBox.height);
-    drawVerticalPalette(ctx, beforePalette, beforePaletteBox, theme);
-    drawVerticalPalette(ctx, afterPalette, afterPaletteBox, theme);
+    if (showPalette) {
+      drawVerticalPalette(ctx, beforePalette, beforePaletteBox, theme);
+      drawVerticalPalette(ctx, afterPalette, afterPaletteBox, theme);
+    }
   } else {
     if (layout === "split") {
       drawImage(ctx, afterImage, fullBox, theme, "AFTER");
@@ -486,9 +633,13 @@ function renderCanvas(canvas, options) {
     ctx.strokeStyle = theme.light;
     ctx.lineWidth = 1;
     ctx.strokeRect(beforeBox.x, mediaTop, mediaWidth, mediaHeight);
-    drawTinyLabel(ctx, "BEFORE", beforeBox, theme);
-    drawTinyLabel(ctx, "AFTER", afterBox, theme);
-    drawPalettes(ctx, beforePalette, afterPalette, paletteBox, theme, layout);
+    if (showLabels) {
+      drawTinyLabel(ctx, "BEFORE", beforeBox, theme);
+      drawTinyLabel(ctx, "AFTER", afterBox, theme);
+    }
+    if (showPalette) {
+      drawPalettes(ctx, beforePalette, afterPalette, paletteBox, theme, layout);
+    }
   }
 }
 
@@ -496,18 +647,21 @@ export default function Home() {
   const canvasRef = useRef(null);
   const beforeInputRef = useRef(null);
   const afterInputRef = useRef(null);
+  const sizeGridRef = useRef(null);
   const [beforeSrc, setBeforeSrc] = useState("");
   const [afterSrc, setAfterSrc] = useState("");
-  const [layout, setLayout] = useState("side");
   const [output, setOutput] = useState("instagramSquare");
+  const [layout, setLayout] = useState(() => getDefaultLayoutForOutput("instagramSquare"));
+  const [showLabels, setShowLabels] = useState(true);
+  const [showPalette, setShowPalette] = useState(true);
   const [fontTick, setFontTick] = useState(0);
   const beforeImage = useLoadedImage(beforeSrc);
   const afterImage = useLoadedImage(afterSrc);
   const theme = THEME;
 
   const drawOptions = useMemo(
-    () => ({ afterImage, beforeImage, fontTick, layout, output, theme }),
-    [afterImage, beforeImage, fontTick, layout, output, theme]
+    () => ({ afterImage, beforeImage, fontTick, layout, output, showLabels, showPalette, theme }),
+    [afterImage, beforeImage, fontTick, layout, output, showLabels, showPalette, theme]
   );
 
   useEffect(() => {
@@ -562,8 +716,12 @@ export default function Home() {
 
   const handleOutputChange = (nextOutput) => {
     setOutput(nextOutput);
-    if (isPortraitOutput(nextOutput)) {
-      setLayout("stack");
+    setLayout(getDefaultLayoutForOutput(nextOutput));
+
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches) {
+      window.requestAnimationFrame(() => {
+        sizeGridRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
     }
   };
 
@@ -583,7 +741,7 @@ export default function Home() {
     const bounds = canvas.getBoundingClientRect();
     const x = ((event.clientX - bounds.left) / bounds.width) * canvas.width;
     const y = ((event.clientY - bounds.top) / bounds.height) * canvas.height;
-    const { afterBox, beforeBox } = getRenderRegions(output, layout);
+    const { afterBox, beforeBox } = getRenderRegions(output, layout, showPalette);
 
     const insideBefore = x >= beforeBox.x && x <= beforeBox.x + beforeBox.width && y >= beforeBox.y && y <= beforeBox.y + beforeBox.height;
     const insideAfter = x >= afterBox.x && x <= afterBox.x + afterBox.width && y >= afterBox.y && y <= afterBox.y + afterBox.height;
@@ -693,6 +851,33 @@ export default function Home() {
           </div>
         </div>
 
+        {/* DISPLAY SECTION */}
+        <div className="control-section">
+          <h2 className="control-section-title">Display / 表示</h2>
+          <div className="control-card">
+            <div className="icon-grid toggle-grid" aria-label="表示オプション">
+              <button
+                aria-pressed={showLabels}
+                className={showLabels ? "icon-button toggle-button active" : "icon-button toggle-button"}
+                onClick={() => setShowLabels((value) => !value)}
+                title="Before / After ラベル"
+              >
+                <Tag size={17} />
+                <span className="toggle-label">Label</span>
+              </button>
+              <button
+                aria-pressed={showPalette}
+                className={showPalette ? "icon-button toggle-button active" : "icon-button toggle-button"}
+                onClick={() => setShowPalette((value) => !value)}
+                title="カラーパレット"
+              >
+                <Palette size={17} />
+                <span className="toggle-label">Palette</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* LAYOUT SECTION */}
         <div className="control-section">
           <h2 className="control-section-title">Layout / レイアウト</h2>
@@ -720,7 +905,7 @@ export default function Home() {
         <div className="control-section">
           <h2 className="control-section-title">Preset Size / サイズ</h2>
           <div className="control-card">
-            <div className="icon-grid size-grid" aria-label="サイズ">
+            <div className="icon-grid size-grid" aria-label="サイズ" ref={sizeGridRef}>
               {Object.entries(OUTPUT_SIZES).map(([id, size]) => {
                 const preset = SIZE_PRESETS[id];
                 const Icon = preset.icon;
