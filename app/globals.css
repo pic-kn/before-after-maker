@@ -385,7 +385,7 @@ select {
 
 canvas {
   display: block;
-  width: 100%;
+  width: auto;
   height: auto;
   max-width: 100%;
   max-height: calc(100vh - 100px);
@@ -431,15 +431,16 @@ canvas:focus-visible {
   }
 
   .canvas-wrapper {
-    width: 100%;
     align-self: start;
+    justify-self: center;
     max-width: min(100%, 720px);
     max-height: calc(100svh - 210px);
     box-shadow: 0 16px 42px rgba(30, 44, 51, 0.12);
   }
 
   canvas {
-    width: 100%;
+    width: auto;
+    height: auto;
     max-height: calc(100svh - 210px);
   }
 
