@@ -811,7 +811,7 @@ export default function Home() {
     const file = blob ? new File([blob], getDownloadName(), { type: "image/png" }) : null;
     const shareData = {
       title: "Before After Maker",
-      text: "Before/After image made with Before After Maker",
+      text: "#みんなのビフォーアフター",
       url: typeof window !== "undefined" ? window.location.href : undefined
     };
 
